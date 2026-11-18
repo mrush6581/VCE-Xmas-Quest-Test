@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Firebase Runtime Test Monitor v3.8.7 · REMOTE PARAMETRIC READ-ONLY</title>
+<style>
+:root{--bg:#f3f6fa;--card:#fff;--border:#c9d2df;--text:#17202a;--muted:#64748b;--green:#137a47;--yellow:#9a6700;--red:#c62828;--blue:#175cd3;--dark:#0d1117}
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:var(--bg);color:var(--text)}main{max-width:1440px;margin:auto;padding:20px}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 2px #0000000d}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.field{min-width:220px;flex:1}label{display:block;font-weight:700;margin:0 0 5px}input{width:100%;padding:10px;border:1px solid #98a2b3;border-radius:6px}button{padding:10px 14px;border:1px solid #667085;border-radius:6px;background:#fff;cursor:pointer;font-weight:700}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:#175cd3;color:#fff;border-color:#175cd3}.warn{background:#fff4ce;border-color:#9a6700}.danger{background:#fee4e2;border-color:#b42318}.statusbar{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px}.pill{padding:5px 9px;border-radius:999px;background:#eef2f6;font-size:13px;font-weight:700}.ok{color:var(--green)}.critical{color:var(--red)}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric{border:1px solid #e1e6ed;border-radius:8px;padding:10px}.metric b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.teams{width:100%;border-collapse:collapse;font-size:14px}.teams th,.teams td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left}.event{border:1px solid #d0d7de;border-left:6px solid #64748b;border-radius:9px;margin:12px 0;overflow:hidden}.event.expected{border-left-color:var(--green)}.event.authorized{border-left-color:var(--blue)}.event.suspicious{border-left-color:var(--yellow)}.event.critical{border-left-color:var(--red)}.eventHead{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;background:#f8fafc}.eventBody{padding:12px}.eventSummary{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}.badge{padding:3px 7px;border-radius:999px;background:#eef2f6;font-size:12px;font-weight:800}.event details{margin-top:10px}.jsonTools{display:flex;align-items:center;gap:8px;margin-top:10px}.jsonTools details{margin-top:0;flex:1}.copyJson{padding:6px 10px;font-size:12px}.copyState{font-size:12px;color:var(--green);font-weight:700;min-width:54px}.event pre{white-space:pre-wrap;overflow:auto;max-height:430px;background:var(--dark);color:#d1d5db;padding:12px;border-radius:7px;font-size:12px}.empty{padding:30px;text-align:center;color:var(--muted)}#eventList{max-height:640px;overflow:auto}.readOnly{font-weight:800;color:var(--green)}
+</style>
+</head>
+<body><main>
+<h1>Firebase Runtime Test Monitor v3.8.7</h1>
+<div class="card">
+<p><span class="readOnly">READ-ONLY</span> · <b id="firebaseEnvironmentLabel"></b> · Listener Firebase senza comandi di scrittura. Raggruppa tutte le variazioni ricevute nello stesso snapshot.</p>
+<div class="toolbar">
+ <div class="field"><label for="battleId">Battle ID</label><input id="battleId" value="test_vce_xmas_quest"></div>
+ <div class="field"><label for="testId">Test corrente</label><input id="testId" value="REGRESSION-RUNTIME" maxlength="80"></div>
+ <button id="start" class="primary">AVVIA MONITOR</button><button id="stop" disabled>FERMA</button>
+ <button id="newTest">NUOVO TEST</button><button id="clear" class="warn">CLEAR DISPLAY</button>
+ <button id="downloadJsonl" disabled>SCARICA JSONL</button><button id="downloadReport" disabled>SCARICA TEST REPORT</button>
+</div>
+<div class="statusbar"><span id="status" class="pill">Non avviato</span><span id="connection" class="pill">Listener inattivo</span><span class="pill">Eventi visibili: <span id="visibleCount">0</span></span><span class="pill">Eventi totali: <span id="totalCount">0</span></span><span class="pill">Business: <span id="businessCount">0</span></span><span class="pill">Presence: <span id="presenceCount">0</span></span></div>
+</div>
+<div class="card"><p><b>Challenge test mode:</b> evidenza ordinata per SEQ per ENTRA ↔ PAUSE ENTRY ↔ GLOBAL RELEASE. Il Monitor osserva e non determina l'authority.</p></div><div class="card"><h2>Snapshot business corrente</h2><div id="snapshot" class="empty">Nessuna baseline acquisita</div></div>
+<div class="card"><h2>Eventi raggruppati</h2><div id="eventList"><div class="empty">Nessun evento visualizzato</div></div></div>
+<script src="firebase.environments.js"></script>
+<script type="module">
+import{initializeApp}from'https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js';
+import{getDatabase,ref,onValue}from'https://www.gstatic.com/firebasejs/12.4.0/firebase-database.js';
+const $=id=>document.getElementById(id);
+  const battleIdPattern=/^[A-Za-z0-9_-]+$/;
+  const battleParam=new URLSearchParams(window.location.search).get('battle');
+  let battleParamInvalid=false;
+  if(battleParam!==null){const candidate=battleParam.trim();if(battleIdPattern.test(candidate))$('battleId').value=candidate;else{battleParamInvalid=true;$('battleId').value=candidate;$('status').textContent='Invalid Battle ID from URL';$('status').classList.add('critical')}}
+let firebaseEnvironment,cfg,db,environmentReady=false;
+try{firebaseEnvironment=window.VCEFirebaseEnvironment.getActive();cfg=firebaseEnvironment.firebaseConfig;window.VCEFirebaseEnvironment.validateConfig(cfg);$('firebaseEnvironmentLabel').textContent=`ENV ${firebaseEnvironment.id} · PROJECT ${cfg.projectId} · DB ${cfg.databaseURL}`;db=getDatabase(initializeApp(cfg));environmentReady=true;}catch(e){$('firebaseEnvironmentLabel').textContent=`ENV ERROR · ${e.message}`;$('firebaseEnvironmentLabel').classList.add('critical');$('start').disabled=true;}let unsubscribe=null,previous=null,events=[],visibleSerial=0,totalSerial=0,currentBattleId='',currentTestId='',testStartedAt=null,eventSequence=0;
+const clone=v=>v===undefined?undefined:JSON.parse(JSON.stringify(v));
+const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+function walk(a,b,path='',out=[]){if(eq(a,b))return out;const ao=a&&typeof a==='object'&&!Array.isArray(a),bo=b&&typeof b==='object'&&!Array.isArray(b);if(ao||bo){const keys=new Set([...Object.keys(ao?a:{}),...Object.keys(bo?b:{})]);for(const k of [...keys].sort())walk(ao?a[k]:undefined,bo?b[k]:undefined,path?`${path}/${k}`:k,out);return out}out.push({path,oldValue:clone(a),newValue:clone(b)});return out}
+function getTeams(root){return Object.keys(root?.teamRuntime||{}).sort()}
+function snapshotSummary(root){const teams=getTeams(root);return{config:{status:root?.config?.status??null,registrationStatus:root?.config?.registrationStatus??null,runtimeGeneration:root?.config?.runtimeGeneration??null,name:root?.config?.name??null},missions:clone(root?.publicMissions||{}),teams:Object.fromEntries(teams.map(id=>{const t=root.teamRuntime[id]||{},c=t.control||{};return[id,{battleStatus:c.battleStatus??null,score:t.score??null,runtimeGeneration:t.runtimeGeneration??c.runtimeGeneration??null,registered:root?.teams?.[id]?.initialized===true,devices:Object.values(root?.deviceRegistrations||{}).filter(d=>d?.teamId===id).length,online:Object.values(root?.devicePresence||{}).filter(d=>d?.teamId===id&&d?.connected===true).length,missions:clone(c.missions||{})}]}))}}
+function renderSnapshot(root){const s=snapshotSummary(root),missionText=Object.entries(s.missions).map(([id,m])=>`${id}: ${m?.status??'—'}`).join(' · ')||'nessuna';const rows=Object.entries(s.teams).map(([id,t])=>`<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(t.battleStatus)}</td><td>${t.score??'—'}</td><td>${t.registered?'SI':'NO'}</td><td>${t.devices}</td><td>${t.online}</td><td>${escapeHtml(Object.entries(t.missions||{}).map(([m,v])=>`${m}: ${v?.acceptingAnswers?'ON':'OFF'} r${v?.commandRevision??'—'}`).join(' · '))}</td></tr>`).join('');$('snapshot').className='';$('snapshot').innerHTML=`<div class="grid"><div class="metric"><b>Battle</b>${escapeHtml(s.config.status)}</div><div class="metric"><b>Generation</b>${s.config.runtimeGeneration??'—'}</div><div class="metric"><b>Registrazioni</b>${escapeHtml(s.config.registrationStatus)}</div><div class="metric"><b>Missioni</b>${escapeHtml(missionText)}</div></div><table class="teams"><thead><tr><th>Team</th><th>Battle</th><th>Score</th><th>Registrato</th><th>Device</th><th>Online</th><th>Missioni</th></tr></thead><tbody>${rows}</tbody></table>`}
+function escapeHtml(v){return String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function commandFamily(command){
+ const c=String(command||'').toUpperCase();
+ if(['START','PAUSE','RESUME','END','REOPEN_BATTLE','FACTORY_RESET','OPEN_REGISTRATION','CLOSE_REGISTRATION','REOPEN_REGISTRATION'].includes(c))return 'BATTLE_LIFECYCLE';
+ if(['PUBLISH','CLOSE','REOPEN','RESET','RESET_MISSION'].includes(c))return 'MISSION_LIFECYCLE';
+ if(['CREATE','CREATE_CHALLENGE','UPDATE_CHALLENGE','CONFIGURE_CHALLENGE'].includes(c))return 'RUNTIME_CHALLENGE';
+ if(['OPEN_ENTRY','ENTER','ENTRA','PAUSE_ENTRY','RESUME_ENTRY','REOPEN_ENTRY','GLOBAL_RELEASE'].includes(c))return 'CHALLENGE_ENTRY';
+ if(['AWARD_JOLLY','USE_JOLLY','CONSUME_JOLLY','AWARD_POINTS','AWARD_REWARD'].includes(c))return 'JOLLY_REWARD';
+ return 'UNKNOWN';
+}
+function changedPath(changes,re){return changes.some(c=>re.test(c.path))}
+function correlatedCandidates(root,changes){
+ const auditIds=[...new Set(changes.map(c=>c.path.match(/^mutationAudit\/([^/]+)/)?.[1]).filter(Boolean))];
+ const audits=auditIds.map(id=>root?.mutationAudit?.[id]).filter(a=>a&&a.operationId);
+ const missionIds=[...new Set(changes.map(c=>c.path.match(/^missionLastCommands\/([^/]+)/)?.[1]||c.path.match(/^publicMissions\/([^/]+)/)?.[1]).filter(Boolean))];
+ const missions=missionIds.map(id=>root?.missionLastCommands?.[id]).filter(a=>a&&a.operationId);
+ return [...missions,...audits].filter((v,i,a)=>a.findIndex(x=>x.operationId===v.operationId)===i);
+}
+function validateCommonEnvelope(root,command){
+ if(!command?.operationId||!command?.command||!command?.writer)return{verified:false,reason:'Envelope incompleto'};
+ const audit=root?.mutationAudit?.[command.operationId];
+ if(!audit)return{verified:false,reason:'mutationAudit correlato assente'};
+ const ok=audit.operationId===command.operationId&&audit.command===command.command&&audit.writer===command.writer;
+ return{verified:ok,reason:ok?'Envelope correlato con mutationAudit':'Envelope non coincidente con mutationAudit',audit};
+}
+function validateFamilyProvenance(root,changes,command,family){
+ const common=validateCommonEnvelope(root,command); if(!common.verified)return common;
+ const a=common.audit;
+ if(family==='JOLLY_REWARD'){
+  if(a.command==='AWARD_JOLLY'){
+   const ids=Array.isArray(a.teamIds)?[...new Set(a.teamIds.map(String))].sort():[],q=Number(a.quantityPerTeam),from=a.fromInventory||{},to=a.toInventory||{},total=Number(a.totalAwarded);
+   const changed=new Map(changes.filter(c=>/^teamRuntime\/[^/]+\/jollyInventory$/.test(c.path)).map(c=>[c.path.split('/')[1],c]));
+   const ok=ids.length>0&&Number.isInteger(q)&&q>=1&&q<=10&&total===ids.length*q&&ids.every(id=>Number(to[id])===Number(from[id])+q&&changed.has(id));
+   return{verified:ok,reason:ok?'Jolly/Reward envelope e write-set coerenti':'Jolly/Reward envelope non coerente'};
+  }
+  return{verified:true,reason:'Jolly/Reward envelope correlato'};
+ }
+ if(family==='BATTLE_LIFECYCLE'&&a.command==='FACTORY_RESET'){
+  const ok=a.to==='SETUP'&&Number.isFinite(Number(a.runtimeGeneration));
+  return{verified:ok,reason:ok?'FACTORY_RESET envelope canonico':'FACTORY_RESET envelope semanticamente invalido'};
+ }
+ if(family==='BATTLE_LIFECYCLE'&&(['OPEN_REGISTRATION','CLOSE_REGISTRATION','REOPEN_REGISTRATION'].includes(a.command))){
+  const expected=a.command==='OPEN_REGISTRATION'?['NOT_OPENED','OPEN']:(a.command==='REOPEN_REGISTRATION'?['CLOSED','OPEN']:['OPEN','CLOSED']),ok=a.from===expected[0]&&a.to===expected[1]&&Number.isFinite(Number(a.runtimeGeneration));
+  return{verified:ok,reason:ok?'Registration envelope canonico':'Registration envelope semanticamente invalido'};
+ }
+ if(family==='RUNTIME_CHALLENGE'&&/^CREATE(?:_CHALLENGE)?$/.test(String(a.command||'').toUpperCase()))return{verified:true,reason:'CREATE Runtime Challenge envelope correlato'};
+ if(family==='CHALLENGE_ENTRY')return{verified:true,reason:'Challenge Entry envelope correlato'};
+ return{verified:true,reason:`${family} envelope correlato`};
+}
+function provenance(root,changes){
+ const candidates=correlatedCandidates(root,changes);
+ let command=candidates.at(-1)||null, family=commandFamily(command?.command);
+ const v=command?validateFamilyProvenance(root,changes,command,family):{verified:false,reason:'Nessuna provenance correlabile'};
+ return{verified:v.verified,source:command?'correlatedEnvelope':'none',family,writer:v.verified?command?.writer??'UNKNOWN':'UNKNOWN',reportedWriter:command?.writer??null,operationId:command?.operationId??null,organizerInstanceId:command?.organizerInstanceId??null,organizerSessionId:command?.organizerSessionId??null,appVersion:command?.appVersion??null,command:command?.command??null,from:command?.from??command?.fromInventory??null,to:command?.to??command?.toInventory??null,teamIds:command?.teamIds??null,quantityPerTeam:command?.quantityPerTeam??null,totalAwarded:command?.totalAwarded??null,reason:v.reason};
+}
+function challengeContractEvidence(changes,prov){
+ const paths=changes.map(c=>c.path),cmd=String(prov?.command||'').toUpperCase(),has=re=>paths.some(p=>re.test(p));
+ return {recognized:commandFamily(cmd)==='CHALLENGE_ENTRY',command:cmd||null,entry:has(/^publicMissions\/[^/]+\/entry(?:\/|$)/i),entryState:has(/^publicMissions\/[^/]+\/entry\/state$/i),entryDuration:has(/^publicMissions\/[^/]+\/entry\/durationSeconds$/i),entryStartedAt:has(/^publicMissions\/[^/]+\/entry\/startedAt$/i),entryDeadline:has(/^publicMissions\/[^/]+\/entry\/deadline$/i),entryRemaining:has(/^publicMissions\/[^/]+\/entry\/remainingMs$/i),preroom:has(/^publicMissions\/[^/]+\/entry\/preroom(?:\/|$)/i),effectiveTarget:has(/^publicMissions\/[^/]+\/entry\/effectiveTarget(?:\/|$)/i),participatingTarget:has(/^publicMissions\/[^/]+\/entry\/participatingTarget(?:\/|$)/i),activityTimer:has(/^publicMissions\/[^/]+\/timer(?:\/|$)/i),jolly:has(/^jokers\/[^/]+\/teams(?:\/|$)/i),missionLastCommand:has(/^missionLastCommands\/[^/]+(?:\/|$)/i),mutationAudit:has(/^mutationAudit\/[^/]+(?:\/|$)/i),paths};
+}
+function challengeIdFromChanges(changes){for(const c of changes){const m=c.path.match(/^publicMissions\/([^/]+)/);if(m)return m[1]}return null}
+function semanticValidation(root,changes,prov,ce,previousRoot){
+ const cmd=String(prov?.command||'').toUpperCase();
+ if(cmd==='OPEN_ENTRY'){
+  const id=challengeIdFromChanges(changes),m=root?.publicMissions?.[id]||{},e=m.entry||{},pr=e.preroom||{},timer=m.timer||{};
+  const target=e.effectiveTarget&&typeof e.effectiveTarget==='object'&&Object.keys(e.effectiveTarget).length>0;
+  const preroomValid=pr&&typeof pr==='object';
+  const noParticipants=e.participatingTarget===undefined||e.participatingTarget===null;
+  const activityTimerNotStarted=timer.startedAt==null&&timer.deadline==null&&String(timer.state||'').toUpperCase()!=='RUNNING';
+  const valid=String(e.state||'').toUpperCase()==='RUNNING'&&Number(e.durationSeconds)===180&&Number.isFinite(Number(e.startedAt))&&Number.isFinite(Number(e.deadline))&&target&&preroomValid&&noParticipants&&activityTimerNotStarted;
+  return{valid,reason:valid?'OPEN_ENTRY semantic contract valido':'OPEN_ENTRY semantic contract VIOLATO'};
+ }
+ if(cmd==='REOPEN_ENTRY'){
+  const id=challengeIdFromChanges(changes),oldMission=previousRoot?.publicMissions?.[id]||{},newMission=root?.publicMissions?.[id]||{},oldEntry=oldMission.entry||{},newEntry=newMission.entry||{},oldTimer=oldMission.timer||{},newTimer=newMission.timer||{};
+  const oldDeadline=Number(oldEntry.deadline),newStartedAt=Number(newEntry.startedAt),newDeadline=Number(newEntry.deadline);
+  const previousWasDerivedExpired=String(oldEntry.state||'').toUpperCase()==='RUNNING'&&Number.isFinite(oldDeadline)&&Number.isFinite(newStartedAt)&&oldDeadline<=newStartedAt;
+  const completeWindow=String(newEntry.state||'').toUpperCase()==='RUNNING'&&Number(newEntry.durationSeconds)===180&&Number.isFinite(newStartedAt)&&Number.isFinite(newDeadline)&&Math.abs((newDeadline-newStartedAt)-180000)<=1000;
+  const newTemporalIdentity=newStartedAt>Number(oldEntry.startedAt||0)&&newDeadline>oldDeadline;
+  const targetPreserved=eq(oldEntry.effectiveTarget,newEntry.effectiveTarget),preroomPreserved=eq(oldEntry.preroom||{},newEntry.preroom||{});
+  const noPreviousParticipants=oldEntry.participatingTarget===undefined||oldEntry.participatingTarget===null,noNewParticipants=newEntry.participatingTarget===undefined||newEntry.participatingTarget===null;
+  const activityTimerUnchanged=eq(oldTimer,newTimer);
+  const valid=previousWasDerivedExpired&&completeWindow&&newTemporalIdentity&&targetPreserved&&preroomPreserved&&noPreviousParticipants&&noNewParticipants&&activityTimerUnchanged;
+  return{valid,reason:valid?'REOPEN_ENTRY semantic contract valido':'REOPEN_ENTRY semantic contract VIOLATO'};
+ }
+ return{valid:true,reason:'Nessuna semantica speciale richiesta'};
+}
+function classifyGroup(changes,root,prov,previousRoot){
+ const business=changes.filter(c=>!c.path.startsWith('devicePresence/'));if(!business.length)return{level:'expected',label:'EXPECTED_RUNTIME'};
+ const ce=challengeContractEvidence(business,prov),sem=semanticValidation(root,business,prov,ce,previousRoot),onlyDiagnostic=business.every(c=>c.path.startsWith('lifecycleLastCommand/')||c.path.startsWith('missionLastCommands/')||c.path.startsWith('mutationAudit/'));
+ if(prov.verified&&!sem.valid)return{level:'critical',label:'AUTHORIZED_COMMAND_SEMANTIC_VIOLATION',contractEvidence:ce,semantic:sem};
+ if(prov.verified)return{level:'authorized',label:ce.recognized?'AUTHORIZED_CHALLENGE_COMMAND':'AUTHORIZED_COMMAND',contractEvidence:ce,semantic:sem};
+ if(ce.entry||ce.preroom||ce.effectiveTarget||ce.participatingTarget||ce.activityTimer)return{level:'critical',label:prov.operationId?'CHALLENGE_CONTRACT_UNVERIFIED':'UNATTRIBUTED_CHALLENGE_MUTATION',contractEvidence:ce,semantic:sem};
+ const critical=business.some(c=>/^(config\/status|publicMissions\/|teamRuntime\/.*\/(battleStatus|acceptingAnswers|commandRevision)|config\/registrationStatus)/.test(c.path));
+ if(critical&&!prov.operationId)return{level:'critical',label:'UNATTRIBUTED_BUSINESS_MUTATION',contractEvidence:ce,semantic:sem};
+ if(onlyDiagnostic)return{level:'suspicious',label:'DIAGNOSTIC_METADATA_CHANGE',contractEvidence:ce,semantic:sem};
+ return{level:'suspicious',label:'SUSPICIOUS',contractEvidence:ce,semantic:sem};
+}
+function compactSummary(changes){return changes.map(c=>`${c.path}: ${JSON.stringify(c.oldValue)} -> ${JSON.stringify(c.newValue)}`).join('\n')}
+function emit(type,data,root){const e={sequence:++eventSequence,localTimestamp:new Date().toISOString(),type,testId:currentTestId,battleId:currentBattleId,...data};events.push(e);totalSerial++;$('totalCount').textContent=String(totalSerial);if(type==='MUTATION_GROUP'){const business=e.changes.filter(c=>!c.path.startsWith('devicePresence/')).length,presence=e.changes.length-business;$('businessCount').textContent=String(Number($('businessCount').textContent)+business);$('presenceCount').textContent=String(Number($('presenceCount').textContent)+presence)}renderEvent(e);$('downloadJsonl').disabled=false;$('downloadReport').disabled=false;if(root)renderSnapshot(root)}
+function renderEvent(e){if(visibleSerial===0)$('eventList').innerHTML='';visibleSerial++;$('visibleCount').textContent=String(visibleSerial);const cls=e.classification?.level||'expected',isMarker=e.type==='TEST_MARKER',heading=isMarker?'NUOVO TEST':e.type,label=isMarker?e.testId:(e.classification?.label||e.type);const div=document.createElement('section');div.className=`event ${cls}`;let summary;if(e.type==='BASELINE'){summary=`Baseline acquisita\nBattle: ${e.snapshot.config.status} · Generation: ${e.snapshot.config.runtimeGeneration} · Registrazioni: ${e.snapshot.config.registrationStatus}`}else if(e.type==='TEST_MARKER'){summary=`NUOVO TEST\nTest ID: ${e.testId}\nMarker: ${e.marker}\nBattle: ${e.snapshot?.config?.status??'—'} · Generation: ${e.snapshot?.config?.runtimeGeneration??'—'} · Registrazioni: ${e.snapshot?.config?.registrationStatus??'—'}`}else{summary=compactSummary(e.changes||[])};div.innerHTML=`<div class="eventHead"><strong>${escapeHtml(heading)} #${visibleSerial} · SEQ ${escapeHtml(e.sequence)}</strong><span class="badge">${escapeHtml(label)}</span><span class="muted">${escapeHtml(e.localTimestamp)}</span></div><div class="eventBody"><div class="eventSummary">${escapeHtml(summary)}</div>${e.classification?.contractEvidence?`<p><b>Challenge evidence:</b> entry=${e.classification.contractEvidence.entry?'YES':'NO'} · PREROOM=${e.classification.contractEvidence.preroom?'YES':'NO'} · effectiveTarget=${e.classification.contractEvidence.effectiveTarget?'YES':'NO'} · participatingTarget=${e.classification.contractEvidence.participatingTarget?'YES':'NO'} · activityTimer=${e.classification.contractEvidence.activityTimer?'YES':'NO'} · jolly=${e.classification.contractEvidence.jolly?'YES':'NO'} · provenance=${(e.classification.contractEvidence.missionLastCommand||e.classification.contractEvidence.mutationAudit)?'YES':'NO'}</p>`:''}${e.provenance?`<p><b>Writer verificato:</b> ${escapeHtml(e.provenance.writer)} · <b>operationId:</b> ${escapeHtml(e.provenance.operationId)} · ${escapeHtml(e.provenance.reason)}</p>`:''}<div class="jsonTools"><details><summary>JSON tecnico completo</summary><pre>${escapeHtml(JSON.stringify(e,null,2))}</pre></details><button type="button" class="copyJson">COPIA JSON</button><span class="copyState"></span></div></div>`;const copyBtn=div.querySelector('.copyJson'),copyState=div.querySelector('.copyState');copyBtn.onclick=async()=>{const text=JSON.stringify(e,null,2);try{await navigator.clipboard.writeText(text);copyState.textContent='COPIATO'}catch{const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();copyState.textContent=ok?'COPIATO':'ERRORE'}};$('eventList').appendChild(div);$('eventList').scrollTop=$('eventList').scrollHeight}
+function resetVisible(){visibleSerial=0;$('visibleCount').textContent='0';$('eventList').innerHTML='<div class="empty">Display pulito. Listener e archivio diagnostico invariati.</div>'}
+function download(name,text,type){const blob=new Blob([text],{type}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href)}
+$('start').onclick=()=>{if(!environmentReady){alert('Ambiente Firebase non valido. Apri firebase_environment_manager.html.');return}if(unsubscribe)return;const id=$('battleId').value.trim();if(!battleIdPattern.test(id)){battleParamInvalid=true;$('status').textContent='Invalid Battle ID';$('status').classList.add('critical');alert('Battle ID non valido');return}battleParamInvalid=false;$('status').classList.remove('critical');currentBattleId=id;currentTestId=$('testId').value.trim()||'UNNAMED-TEST';testStartedAt=new Date().toISOString();events=[];previous=null;visibleSerial=0;totalSerial=0;eventSequence=0;$('visibleCount').textContent='0';$('totalCount').textContent='0';$('businessCount').textContent='0';$('presenceCount').textContent='0';$('eventList').innerHTML='';$('snapshot').className='empty';$('snapshot').textContent='In attesa della Battle...';$('status').textContent=`Test: ${currentTestId}`;$('connection').textContent='Listener attivo';$('start').disabled=true;$('stop').disabled=false;unsubscribe=onValue(ref(db,`battles/${id}`),snap=>{const current=snap.val();if(current===null){previous=null;$('snapshot').className='empty';$('snapshot').textContent=`Battle not found: ${id}`;$('status').textContent=`Battle not found: ${id}`;$('status').classList.add('critical');return}$('status').classList.remove('critical');if(previous===null){previous=clone(current);emit('BASELINE',{snapshot:snapshotSummary(current)},current);return}const before=previous;const changes=walk(before,current);if(changes.length){const prov=provenance(current,changes),classification=classifyGroup(changes,current,prov,before);emit('MUTATION_GROUP',{classification,provenance:prov,changes},current)}previous=clone(current)},err=>emit('ERROR',{message:err.message},null))};
+$('stop').onclick=()=>{if(unsubscribe)unsubscribe();unsubscribe=null;$('connection').textContent='Listener fermo';$('start').disabled=false;$('stop').disabled=true};
+$('clear').onclick=resetVisible;
+$('newTest').onclick=()=>{currentTestId=$('testId').value.trim()||`TEST-${new Date().toISOString()}`;testStartedAt=new Date().toISOString();resetVisible();if(previous)emit('TEST_MARKER',{marker:'START',snapshot:snapshotSummary(previous)},previous);$('status').textContent=`Test: ${currentTestId}`};
+$('downloadJsonl').onclick=()=>download(`firebase_runtime_v3_${new Date().toISOString().replace(/[:.]/g,'-')}.jsonl`,events.map(x=>JSON.stringify(x)).join('\n')+'\n','application/x-ndjson');
+$('downloadReport').onclick=()=>{const report={monitorVersion:'V3.8.7',readOnly:true,remoteParametric:true,battleId:currentBattleId,testId:currentTestId,testStartedAt,exportedAt:new Date().toISOString(),currentSnapshot:previous?snapshotSummary(previous):null,eventCount:events.length,events};download(`firebase_test_report_${currentTestId.replace(/[^A-Za-z0-9_-]/g,'_')}_${new Date().toISOString().replace(/[:.]/g,'-')}.json`,JSON.stringify(report,null,2),'application/json')};
+</script></main><script>window.JOLLY_E2E_PROVENANCE={AWARD_JOLLY:'AUTHORIZED_COMMAND',USE_JOLLY:'AUTHORIZED_COMMAND',CONSUME_JOLLY:'WEBAPP_TEAM_CORRECT_SCORE',FACTORY_RESET:'AUTHORIZED_COMMAND'};window.CHALLENGE_ENTRY_MONITOR_CONTRACT={version:'FIREBASE-CONSOLIDATED-ENTRY-REGISTRATION-01',testContract:'CHALLENGE-LIFECYCLE-EXECUTABLE-TESTS-01',teams:['Alpha','Bravo','Charlie'],aggregate:'publicMissions/{challengeId}/entry',paths:['publicMissions/{challengeId}/entry/state','publicMissions/{challengeId}/entry/durationSeconds','publicMissions/{challengeId}/entry/startedAt','publicMissions/{challengeId}/entry/deadline','publicMissions/{challengeId}/entry/remainingMs','publicMissions/{challengeId}/entry/effectiveTarget/*','publicMissions/{challengeId}/entry/preroom/*','publicMissions/{challengeId}/entry/participatingTarget/*','publicMissions/{challengeId}/timer/*','jokers/{challengeId}/teams/*','missionLastCommands/{challengeId}/*','mutationAudit/{operationId}/*'],rules:['PAUSE_ENTRY_TEMPORAL_ONLY','ENTRA_INDIVIDUAL_BOUNDARY','GLOBAL_RELEASE_COLLECTIVE_BOUNDARY','AUTHORITATIVE_COMMIT_ORDER']};window.JOLLY_INVENTORY_CONTRACT={mode:'MULTI_TEAM_ATOMIC',field:'jollyInventory',audit:'mutationAudit',awardWriter:'GMC_JOLLY_LIVE_REWARD',useWriter:'WEBAPP_TEAM_JOLLY',awardCommand:'AWARD_JOLLY',useCommand:'USE_JOLLY',consumeCommand:'CONSUME_JOLLY'};</script></body></html>
